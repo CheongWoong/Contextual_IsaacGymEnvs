@@ -56,6 +56,9 @@ from .allegro_kuka.allegro_kuka_two_arms_reorientation import AllegroKukaTwoArms
 from .industreal.industreal_task_pegs_insert import IndustRealTaskPegsInsert
 from .industreal.industreal_task_gears_insert import IndustRealTaskGearsInsert
 
+from .contextual.contextual_ant import ContextualAnt
+from .contextual.contextual_anymal import ContextualAnymal
+
 
 def resolve_allegro_kuka(cfg, *args, **kwargs):
     subtask_name: str = cfg["env"]["subtask"]
@@ -111,4 +114,7 @@ isaacgym_task_map = {
     "Quadcopter": Quadcopter,
     "ShadowHand": ShadowHand,
     "Trifinger": Trifinger,
+
+    "ContextualAnt": ContextualAnt,
+    "ContextualAnymal": ContextualAnymal,
 }

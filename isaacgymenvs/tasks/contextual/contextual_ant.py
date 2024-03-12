@@ -38,7 +38,7 @@ from isaacgymenvs.utils.torch_jit_utils import *
 from isaacgymenvs.tasks.base.vec_task import VecTask
 
 
-class Ant(VecTask):
+class ContextualAnt(VecTask):
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
 
@@ -121,9 +121,35 @@ class Ant(VecTask):
         print(f'num envs {self.num_envs} env spacing {self.cfg["env"]["envSpacing"]}')
         self._create_envs(self.num_envs, self.cfg["env"]['envSpacing'], int(np.sqrt(self.num_envs)))
 
+        ###### cwkang: save the original system parameters
+        self.original_sys_param = torch.zeros((self.num_envs, 2), device=self.device, dtype=torch.float)
+        self.sys_param_weight = torch.ones((self.num_envs, 2), device=self.device, dtype=torch.float)
+
+        for i in range(self.num_envs):
+            handle = self.gym.find_actor_handle(self.envs[i], 'ant')
+            rigid_body_prop = self.gym.get_actor_rigid_body_properties(self.envs[i], handle)
+            self.original_sys_param[i][0] = rigid_body_prop[0].mass
+
+            dof_prop = self.gym.get_actor_dof_properties(self.envs[i], handle)
+            self.original_sys_param[i][1] = dof_prop[0][7].item()
+        # print('ori')
+        # print(self.original_sys_param[0])
+        ######
+
         # If randomizing, apply once immediately on startup before the fist sim step
         if self.randomize:
             self.apply_randomizations(self.randomization_params)
+            ###### cwkang: update the system parameter weights
+            for i in range(self.num_envs):
+                handle = self.gym.find_actor_handle(self.envs[i], 'ant')
+                rigid_body_prop = self.gym.get_actor_rigid_body_properties(self.envs[i], handle)
+                self.sys_param_weight[i][0] = rigid_body_prop[0].mass / self.original_sys_param[i][0]
+
+                dof_prop = self.gym.get_actor_dof_properties(self.envs[i], handle)
+                self.sys_param_weight[i][1] = dof_prop[0][7] / self.original_sys_param[i][1]
+            # print('sys')
+            # print(self.sys_param_weight[0])
+            ######
 
     def _create_ground_plane(self):
         plane_params = gymapi.PlaneParams()
@@ -136,7 +162,7 @@ class Ant(VecTask):
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
-        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../assets')
+        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../assets')
         asset_file = "mjcf/nv_ant.xml"
 
         if "asset" in self.cfg["env"]:
@@ -252,7 +278,17 @@ class Ant(VecTask):
     def reset_idx(self, env_ids):
         # Randomization can happen only at reset time, since it can reset actor positions on GPU
         if self.randomize:
-            self.apply_randomizations(self.randomization_params)
+            # self.apply_randomizations(self.randomization_params)
+            ###### cwkang: update the system parameter weights
+            randomized_ids = self.apply_randomizations(self.randomization_params)
+            for i in randomized_ids:
+                handle = self.gym.find_actor_handle(self.envs[i], 'ant')
+                rigid_body_prop = self.gym.get_actor_rigid_body_properties(self.envs[i], handle)
+                self.sys_param_weight[i][0] = rigid_body_prop[0].mass / self.original_sys_param[i][0]
+
+                dof_prop = self.gym.get_actor_dof_properties(self.envs[i], handle)
+                self.sys_param_weight[i][1] = dof_prop[0][7] / self.original_sys_param[i][1]
+            ######
 
         positions = torch_rand_float(-0.2, 0.2, (len(env_ids), self.num_dof), device=self.device)
         velocities = torch_rand_float(-0.1, 0.1, (len(env_ids), self.num_dof), device=self.device)
@@ -295,6 +331,8 @@ class Ant(VecTask):
         self.compute_observations()
         self.compute_reward(self.actions)
         self.compute_true_objective()
+
+        self.extras['sys_param_weight'] = self.sys_param_weight # cwkang: put the system param info into extras
 
         # debug viz
         if self.viewer and self.debug_viz:

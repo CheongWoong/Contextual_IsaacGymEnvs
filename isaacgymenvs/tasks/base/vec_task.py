@@ -454,6 +454,9 @@ class VecTask(Env):
 
         return self.obs_dict, done_env_ids
 
+    def get_sys_param_weight(self):
+        return self.sys_param_weight
+
     def render(self, mode="rgb_array"):
         """Draw the frame to the viewer, and check for keyboard events."""
         if self.viewer:
@@ -793,6 +796,7 @@ class VecTask(Env):
                         if self.first_randomization:
                             self.original_props[prop_name] = [
                                 {attr: getattr(p, attr) for attr in dir(p)} for p in prop]
+                        custom_sample = None
                         for p, og_p in zip(prop, self.original_props[prop_name]):
                             for attr, attr_randomization_params in prop_attrs.items():
                                 setup_only = attr_randomization_params.get('setup_only', False)
@@ -801,9 +805,9 @@ class VecTask(Env):
                                     if self.actor_params_generator is not None:
                                         smpl, extern_offsets[env_id] = get_attr_val_from_sample(
                                             extern_sample, extern_offsets[env_id], p, attr)
-                                    apply_random_samples(
+                                    custom_sample = apply_random_samples(
                                         p, og_p, attr, attr_randomization_params,
-                                        self.last_step, smpl)
+                                        self.last_step, smpl, custom_sample=custom_sample) # cwkang: use custom_sample
                                 else:
                                     set_random_properties = False
                     else:
@@ -838,3 +842,5 @@ class VecTask(Env):
                         raise Exception("Invalid extern_sample size")
 
         self.first_randomization = False
+
+        return env_ids # cwkang: to track the system parameter values for updated envs only
