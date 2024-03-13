@@ -167,7 +167,6 @@ class Agent(nn.Module):
             layer_init(nn.Linear(NUM_SYS_PARAMS, 10)),
             nn.Tanh(),
             layer_init(nn.Linear(10, 10)),
-            nn.Tanh()
         )
         self.critic = nn.Sequential(
             layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod() + 10, 256)), # cwkang: add input dim

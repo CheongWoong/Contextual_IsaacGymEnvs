@@ -141,7 +141,6 @@ class Agent(nn.Module):
             layer_init(nn.Linear(128, 64)),
             nn.Tanh(),
             layer_init(nn.Linear(64, 10)),
-            nn.Tanh()
         )
 
         self.critic = nn.Sequential(
