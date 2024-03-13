@@ -37,7 +37,7 @@ do
         checkpoint_path=$run_dir"/checkpoints/99942400_phase2.pth"
         
         python -m src.test_osi \
-            --osi_checkpoint $osi_checkpoint_path \
+            --osi_checkpoint_path $osi_checkpoint_path \
             --checkpoint_path $checkpoint_path \
             --env_id $env_id \
             --seed $test_seed
@@ -45,7 +45,7 @@ do
         checkpoint_path=$run_dir"/checkpoints/99942400_phase2_raw.pth"
         
         python -m src.test_osi_raw \
-            --osi_checkpoint $osi_checkpoint_path \
+            --osi_checkpoint_path $osi_checkpoint_path \
             --checkpoint_path $checkpoint_path \
             --env_id $env_id \
             --seed $test_seed
@@ -58,7 +58,7 @@ do
         checkpoint_path=$run_dir"/checkpoints/99942400_phase2.pth"
         
         python -m src.test_dm \
-            --dm_checkpoint $dm_checkpoint_path \
+            --dm_checkpoint_path $dm_checkpoint_path \
             --checkpoint_path $checkpoint_path \
             --env_id $env_id \
             --seed $test_seed
