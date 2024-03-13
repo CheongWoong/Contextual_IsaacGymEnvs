@@ -271,6 +271,8 @@ if __name__ == "__main__":
     test_results = defaultdict(dict) # cwkang: record test results
     num_episodes = 0
 
+    contexts = []
+
     while num_episodes < args.total_episodes:
         global_step += args.num_envs
 
@@ -297,6 +299,8 @@ if __name__ == "__main__":
 
             history_input = history_input.reshape((history_input.shape[0], -1))
             action, logprob, _, value = agent.get_action_and_value(history_input, next_obs)
+            context = agent.get_context(history_input)
+            contexts.append(context.detach().cpu())
             #######
 
         # TRY NOT TO MODIFY: execute the game and log data.
@@ -348,3 +352,5 @@ if __name__ == "__main__":
 
     # envs.close()
     writer.close()
+
+    torch.save(contexts, f"runs/{run_name}/contexts.pt")
