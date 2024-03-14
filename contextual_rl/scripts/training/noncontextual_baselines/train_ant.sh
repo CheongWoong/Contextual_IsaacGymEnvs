@@ -1,3 +1,5 @@
+device_id=$1
+
 for seed in 0 1 2 3 4
 do
     for env_id in Ant \
@@ -11,6 +13,7 @@ do
             --env_id $env_id \
             --seed $seed \
             --total_timesteps 100000000 \
+            --device_id $device_id \
             --anneal_lr
     done
 done

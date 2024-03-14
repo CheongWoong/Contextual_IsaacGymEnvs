@@ -1,3 +1,5 @@
+device_id=$1
+
 test_seed=100
 
 for train_seed in 0 1 2 3 4
@@ -14,6 +16,7 @@ do
             python -m src.test_ppo \
                 --checkpoint_path $checkpoint_path \
                 --env_id $env_id \
+                --device_id $device_id \
                 --seed $test_seed
         done
     done
