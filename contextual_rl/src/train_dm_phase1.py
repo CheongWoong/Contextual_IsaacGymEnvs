@@ -154,7 +154,6 @@ class Agent(nn.Module):
             layer_init(nn.Linear(NUM_SYS_PARAMS, 10)),
             nn.Tanh(),
             layer_init(nn.Linear(10, 10)),
-            nn.Tanh()
         )
         self.critic = nn.Sequential(
             layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod() + 10, 256)), # cwkang: add input dim
@@ -204,7 +203,6 @@ class DynamicsModel(nn.Module):
             layer_init(nn.Linear(128, 64)),
             nn.Tanh(),
             layer_init(nn.Linear(64, 10)),
-            nn.Tanh()
         )
         self.estimator = nn.Sequential(
             layer_init(nn.Linear(10 + obs_dim + action_dim, 10 + obs_dim + action_dim)),

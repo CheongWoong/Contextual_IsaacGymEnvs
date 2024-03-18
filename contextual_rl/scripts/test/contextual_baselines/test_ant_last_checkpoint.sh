@@ -1,3 +1,5 @@
+device_id=$1
+
 test_seed=100
 
 train_env_id=ContextualAntTrain
@@ -17,6 +19,7 @@ do
         python -m src.test_ppo_stacked \
             --checkpoint_path $checkpoint_path \
             --env_id $env_id \
+            --device_id $device_id \
             --seed $test_seed
 
         run_name=$train_env_id"_osi_true"
@@ -27,6 +30,7 @@ do
         python -m src.test_osi_true \
             --checkpoint_path $checkpoint_path \
             --env_id $env_id \
+            --device_id $device_id \
             --seed $test_seed
 
 
@@ -40,6 +44,7 @@ do
             --osi_checkpoint_path $osi_checkpoint_path \
             --checkpoint_path $checkpoint_path \
             --env_id $env_id \
+            --device_id $device_id \
             --seed $test_seed
 
         checkpoint_path=$run_dir"/checkpoints/99942400_phase2_raw.pth"
@@ -48,6 +53,7 @@ do
             --osi_checkpoint_path $osi_checkpoint_path \
             --checkpoint_path $checkpoint_path \
             --env_id $env_id \
+            --device_id $device_id \
             --seed $test_seed
 
 
@@ -61,6 +67,7 @@ do
             --dm_checkpoint_path $dm_checkpoint_path \
             --checkpoint_path $checkpoint_path \
             --env_id $env_id \
+            --device_id $device_id \
             --seed $test_seed
     done
 done

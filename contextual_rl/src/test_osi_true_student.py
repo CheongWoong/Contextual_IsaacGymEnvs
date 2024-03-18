@@ -175,7 +175,6 @@ class Student(nn.Module):
             layer_init(nn.Linear(128, 64)),
             nn.Tanh(),
             layer_init(nn.Linear(64, 10)),
-            nn.Tanh()
         )
 
     def forward(self, history):
@@ -285,6 +284,8 @@ if __name__ == "__main__":
     test_results = defaultdict(dict) # cwkang: record test results
     num_episodes = 0
 
+    contexts = []
+
     while num_episodes < args.total_episodes:
         global_step += args.num_envs
 
@@ -311,6 +312,7 @@ if __name__ == "__main__":
 
             history_input = history_input.reshape((history_input.shape[0], -1))
             context = student.get_context(history_input)
+            contexts.append(context.detach().cpu())
             action, logprob, _, value = agent.get_action_and_value(context, next_obs)
             #######
 
@@ -363,3 +365,5 @@ if __name__ == "__main__":
 
     # envs.close()
     writer.close()
+
+    torch.save(contexts, f"runs/{run_name}/contexts.pt")

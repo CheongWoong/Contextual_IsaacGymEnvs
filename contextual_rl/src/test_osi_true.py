@@ -133,7 +133,6 @@ class Agent(nn.Module):
             layer_init(nn.Linear(NUM_SYS_PARAMS, 10)),
             nn.Tanh(),
             layer_init(nn.Linear(10, 10)),
-            nn.Tanh()
         )
         self.critic = nn.Sequential(
             layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod() + 10, 256)), # cwkang: add input dim
@@ -254,6 +253,8 @@ if __name__ == "__main__":
     test_results = defaultdict(dict) # cwkang: record test results
     num_episodes = 0
 
+    contexts = []
+
     while num_episodes < args.total_episodes:
         global_step += args.num_envs
 
@@ -264,6 +265,8 @@ if __name__ == "__main__":
             
             # cwkang: use system parameters as additional input
             action, logprob, _, value = agent.get_action_and_value(sys_param_weight, next_obs)
+            context = agent.get_context(sys_param_weight)
+            contexts.append(context.detach().cpu())
             #######
 
         # TRY NOT TO MODIFY: execute the game and log data.
@@ -315,3 +318,5 @@ if __name__ == "__main__":
 
     # envs.close()
     writer.close()
+
+    torch.save(contexts, f"runs/{run_name}/contexts.pt")

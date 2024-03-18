@@ -1,3 +1,5 @@
+device_id=$1
+
 test_seed=100
 
 train_env_id=ContextualAnymalTrain
@@ -19,6 +21,7 @@ do
             --student_checkpoint_path $student_checkpoint_path \
             --checkpoint_path $checkpoint_path \
             --env_id $env_id \
+            --device_id $device_id \
             --seed $test_seed
     done
 done
