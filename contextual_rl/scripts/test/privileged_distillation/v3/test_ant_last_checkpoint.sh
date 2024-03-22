@@ -17,7 +17,7 @@ do
         student_checkpoint_path=$run_dir"/checkpoints/99942400_phase1.pth"
         checkpoint_path=$run_dir"/checkpoints/99942400_phase2.pth"
         
-        python -m src.test_osi_true_student \
+        python -m src.v3.test_osi_true_student \
             --student_checkpoint_path $student_checkpoint_path \
             --checkpoint_path $checkpoint_path \
             --env_id $env_id \

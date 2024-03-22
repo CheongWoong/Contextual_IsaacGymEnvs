@@ -16,7 +16,7 @@ do
 
         checkpoint_path=$run_dir"/checkpoints/99942400.pth"
         
-        python -m src.test_osi_true_student \
+        python -m src.v2.test_osi_true_student \
             --checkpoint_path $checkpoint_path \
             --env_id $env_id \
             --device_id $device_id \
