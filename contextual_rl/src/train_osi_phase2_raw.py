@@ -354,6 +354,7 @@ if __name__ == "__main__":
 
                 history_input_obs = history_obses[step]*history_input_mask.unsqueeze(-1)
                 history_input_action = history_actions[step]*history_input_mask.unsqueeze(-1)
+                history_input_action = torch.clamp(history_input_action, -envs.clip_actions, envs.clip_actions)
                 history_input = torch.cat((history_input_obs, history_input_action), dim=-1)
 
                 history_input = history_input.reshape((history_input.shape[0], -1))

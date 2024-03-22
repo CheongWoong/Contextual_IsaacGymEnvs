@@ -198,7 +198,7 @@ class Agent(nn.Module):
         return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self.critic(torch.cat((context, x), dim=-1))
     
 
-class DynamicsModel(nn.Module):
+class Student(nn.Module):
     def __init__(self, envs, len_history):
         super().__init__()
         obs_dim = np.array(envs.single_observation_space.shape).prod()
@@ -212,15 +212,9 @@ class DynamicsModel(nn.Module):
             nn.Tanh(),
             layer_init(nn.Linear(64, 10)),
         )
-        self.estimator = nn.Sequential(
-            layer_init(nn.Linear(10 + obs_dim + action_dim, 10 + obs_dim + action_dim)),
-            nn.Tanh(),
-            layer_init(nn.Linear(10 + obs_dim + action_dim, obs_dim)),
-        )
 
-    def forward(self, history, x):
-        context = self.context_encoder(history)
-        return self.estimator(torch.cat((context, x), dim=-1))
+    def forward(self, history):
+        return self.context_encoder(history)
     
     def get_context(self, history):
         with torch.no_grad():
@@ -239,7 +233,7 @@ if __name__ == "__main__":
     args.num_iterations = args.total_timesteps // args.batch_size
     # run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
     # run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{time.strftime('%Y-%m-%d_%H:%M:%S', time.localtime(time.time()))}" # cwkang: use datetime format for readability
-    run_name = f"training/seed_{args.seed}/{args.env_id}_dm"
+    run_name = f"training/seed_{args.seed}/{args.env_id}_osi_true_student"
     os.makedirs(f"runs/{run_name}/checkpoints", exist_ok=True) # cwkang: prepare the directory for saving the model parameters
     if args.track:
         import wandb
@@ -286,10 +280,10 @@ if __name__ == "__main__":
     envs.single_observation_space = envs.observation_space
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
-    # cwkang: initialize the dynamics model
-    dm = DynamicsModel(envs, args.len_history).to(device)
-    dm.load_state_dict(torch.load(f'{args.checkpoint_path}'))
-    dm.eval()
+    # cwkang: initialize the student context encoder
+    student = Student(envs, args.len_history).to(device)
+    student.load_state_dict(torch.load(f'{args.checkpoint_path}'))
+    student.eval()
 
     agent = Agent(envs).to(device)
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
@@ -357,7 +351,7 @@ if __name__ == "__main__":
                 history_input = torch.cat((history_input_obs, history_input_action), dim=-1)
 
                 history_input = history_input.reshape((history_input.shape[0], -1))
-                context = dm.get_context(history_input)
+                context = student.get_context(history_input)
                 contexts[step] = context
                 action, logprob, _, value = agent.get_action_and_value(context, next_obs)
                 #######

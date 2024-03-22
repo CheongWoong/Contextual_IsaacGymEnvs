@@ -78,9 +78,7 @@ class Args:
     """the gpu id"""
 
     len_history: int = 10
-    # cwkang: Checkpoint path to load the context encoder
-    osi_checkpoint_path: str = ""
-    """the path to the checkpoint"""
+    # cwkang: Checkpoint path
     checkpoint_path: str = ""
     """the path to the checkpoint"""
 
@@ -134,14 +132,14 @@ class Agent(nn.Module):
     def __init__(self, envs):
         super().__init__()
         self.critic = nn.Sequential(
-            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod() + NUM_SYS_PARAMS, 256)), # cwkang: add input dim
+            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod() + 10, 256)), # cwkang: add input dim
             nn.Tanh(),
             layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
             layer_init(nn.Linear(256, 1), std=1.0),
         )
         self.actor_mean = nn.Sequential(
-            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod() + NUM_SYS_PARAMS, 256)), # cwkang: add input dim
+            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod() + 10, 256)), # cwkang: add input dim
             nn.Tanh(),
             layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
@@ -162,7 +160,7 @@ class Agent(nn.Module):
         return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self.critic(torch.cat((context, x), dim=-1))
     
 
-class OSI(nn.Module):
+class Student(nn.Module):
     def __init__(self, envs, len_history):
         super().__init__()
         obs_dim = np.array(envs.single_observation_space.shape).prod()
@@ -176,20 +174,40 @@ class OSI(nn.Module):
             nn.Tanh(),
             layer_init(nn.Linear(64, 10)),
         )
-        self.estimator = nn.Sequential(
-            layer_init(nn.Linear(10, 10)),
-            nn.Tanh(),
-            layer_init(nn.Linear(10, NUM_SYS_PARAMS)),
-        )
 
-    def forward(self, history):
+        self.critic = nn.Sequential(
+            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod() + 10, 256)), # cwkang: add input dim
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 1), std=1.0),
+        )
+        self.actor_mean = nn.Sequential(
+            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod() + 10, 256)), # cwkang: add input dim
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, np.prod(envs.single_action_space.shape)), std=0.01),
+        )
+        self.actor_logstd = nn.Parameter(torch.zeros(1, np.prod(envs.single_action_space.shape)))
+
+    def get_value(self, history, x):
         context = self.context_encoder(history)
-        return self.estimator(context)
+        return self.critic(torch.cat((context, x), dim=-1))
+
+    def get_action_and_value(self, history, x, action=None):
+        context = self.context_encoder(history)
+        action_mean = self.actor_mean(torch.cat((context, x), dim=-1))
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        probs = Normal(action_mean, action_std)
+        if action is None:
+            action = probs.sample()
+        return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self.critic(torch.cat((context, x), dim=-1))
     
     def get_context(self, history):
         with torch.no_grad():
-            context = self.context_encoder(history)
-            return self.estimator(context)
+            return self.context_encoder(history)
 
 
 class ExtractObsWrapper(gym.ObservationWrapper):
@@ -262,14 +280,10 @@ if __name__ == "__main__":
     envs.single_observation_space = envs.observation_space
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
-    # cwkang: initialize the osi model
-    osi = OSI(envs, args.len_history).to(device)
-    osi.load_state_dict(torch.load(f'{args.osi_checkpoint_path}'))
-    osi.eval()
-
-    agent = Agent(envs).to(device)
-    agent.load_state_dict(torch.load(f'{args.checkpoint_path}'))
-    agent.eval()
+    # cwkang: initialize the student context encoder
+    student = Student(envs, args.len_history).to(device)
+    student.load_state_dict(torch.load(f'{args.checkpoint_path}'))
+    student.eval()
 
     history_obs = deque(maxlen=args.len_history)
     history_action = deque(maxlen=args.len_history)
@@ -319,9 +333,9 @@ if __name__ == "__main__":
             history_input = torch.cat((history_input_obs, history_input_action), dim=-1)
 
             history_input = history_input.reshape((history_input.shape[0], -1))
-            context = osi.get_context(history_input)
+            action, logprob, _, value = student.get_action_and_value(history_input, next_obs)
+            context = student.get_context(history_input)
             contexts.append(context.detach().cpu())
-            action, logprob, _, value = agent.get_action_and_value(context, next_obs)
             #######
 
         # TRY NOT TO MODIFY: execute the game and log data.

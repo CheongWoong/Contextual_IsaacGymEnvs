@@ -2,9 +2,9 @@ device_id=$1
 
 for seed in 0 1 2 3 4
 do
-    env_id=ContextualAnymalTrain
+    env_id=ContextualAntTrain
 
-    python -m src.train_osi_true_student_phase1 \
+    python -m src.v1.train_osi_true_student_phase1 \
         --env_id $env_id \
         --seed $seed \
         --total_timesteps 100000000 \
@@ -12,7 +12,7 @@ do
         --anneal_lr \
         --checkpoint_path "runs/training/seed_"$seed"/"$env_id"_osi_true/checkpoints/99942400.pth"
 
-    python -m src.train_osi_true_student_phase2 \
+    python -m src.v1.train_osi_true_student_phase2 \
         --env_id $env_id \
         --seed $seed \
         --total_timesteps 100000000 \

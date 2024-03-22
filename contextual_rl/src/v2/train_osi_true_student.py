@@ -166,9 +166,15 @@ def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
 
 
 NUM_SYS_PARAMS = 2 # cwkang: add input dim
-class Agent(nn.Module):
+class Teacher(nn.Module):
     def __init__(self, envs):
         super().__init__()
+
+        self.context_encoder = nn.Sequential(
+            layer_init(nn.Linear(NUM_SYS_PARAMS, 10)),
+            nn.Tanh(),
+            layer_init(nn.Linear(10, 10)),
+        )
         self.critic = nn.Sequential(
             layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod() + 10, 256)), # cwkang: add input dim
             nn.Tanh(),
@@ -185,10 +191,12 @@ class Agent(nn.Module):
         )
         self.actor_logstd = nn.Parameter(torch.zeros(1, np.prod(envs.single_action_space.shape)))
 
-    def get_value(self, context, x):
+    def get_value(self, sys_params, x):
+        context = self.context_encoder(sys_params)
         return self.critic(torch.cat((context, x), dim=-1))
 
-    def get_action_and_value(self, context, x, action=None):
+    def get_action_and_value(self, sys_params, x, action=None):
+        context = self.context_encoder(sys_params)
         action_mean = self.actor_mean(torch.cat((context, x), dim=-1))
         action_logstd = self.actor_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)
@@ -196,9 +204,13 @@ class Agent(nn.Module):
         if action is None:
             action = probs.sample()
         return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self.critic(torch.cat((context, x), dim=-1))
+
+    def get_context(self, sys_params):
+        with torch.no_grad():
+            return self.context_encoder(sys_params)
     
 
-class DynamicsModel(nn.Module):
+class Student(nn.Module):
     def __init__(self, envs, len_history):
         super().__init__()
         obs_dim = np.array(envs.single_observation_space.shape).prod()
@@ -212,15 +224,36 @@ class DynamicsModel(nn.Module):
             nn.Tanh(),
             layer_init(nn.Linear(64, 10)),
         )
-        self.estimator = nn.Sequential(
-            layer_init(nn.Linear(10 + obs_dim + action_dim, 10 + obs_dim + action_dim)),
-            nn.Tanh(),
-            layer_init(nn.Linear(10 + obs_dim + action_dim, obs_dim)),
-        )
 
-    def forward(self, history, x):
+        self.critic = nn.Sequential(
+            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod() + 10, 256)), # cwkang: add input dim
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 1), std=1.0),
+        )
+        self.actor_mean = nn.Sequential(
+            layer_init(nn.Linear(np.array(envs.single_observation_space.shape).prod() + 10, 256)), # cwkang: add input dim
+            nn.Tanh(),
+            layer_init(nn.Linear(256, 256)),
+            nn.Tanh(),
+            layer_init(nn.Linear(256, np.prod(envs.single_action_space.shape)), std=0.01),
+        )
+        self.actor_logstd = nn.Parameter(torch.zeros(1, np.prod(envs.single_action_space.shape)))
+
+    def get_value(self, history, x):
         context = self.context_encoder(history)
-        return self.estimator(torch.cat((context, x), dim=-1))
+        return self.critic(torch.cat((context, x), dim=-1))
+
+    def get_action_and_value(self, history, x, action=None):
+        context = self.context_encoder(history)
+        action_mean = self.actor_mean(torch.cat((context, x), dim=-1))
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        probs = Normal(action_mean, action_std)
+        if action is None:
+            action = probs.sample()
+        return action, probs.log_prob(action).sum(1), probs.entropy().sum(1), self.critic(torch.cat((context, x), dim=-1))
     
     def get_context(self, history):
         with torch.no_grad():
@@ -239,7 +272,7 @@ if __name__ == "__main__":
     args.num_iterations = args.total_timesteps // args.batch_size
     # run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
     # run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{time.strftime('%Y-%m-%d_%H:%M:%S', time.localtime(time.time()))}" # cwkang: use datetime format for readability
-    run_name = f"training/seed_{args.seed}/{args.env_id}_dm"
+    run_name = f"training/seed_{args.seed}/{args.env_id}_osi_true_student"
     os.makedirs(f"runs/{run_name}/checkpoints", exist_ok=True) # cwkang: prepare the directory for saving the model parameters
     if args.track:
         import wandb
@@ -286,13 +319,14 @@ if __name__ == "__main__":
     envs.single_observation_space = envs.observation_space
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
-    # cwkang: initialize the dynamics model
-    dm = DynamicsModel(envs, args.len_history).to(device)
-    dm.load_state_dict(torch.load(f'{args.checkpoint_path}'))
-    dm.eval()
+    # cwkang: initialize the student context encoder
+    teacher = Teacher(envs).to(device)
+    teacher.load_state_dict(torch.load(f'{args.checkpoint_path}'))
+    teacher.eval()
 
-    agent = Agent(envs).to(device)
-    optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
+    student = Student(envs, args.len_history).to(device)
+    optimizer = optim.Adam(student.parameters(), lr=args.learning_rate, eps=1e-5)
+    mse_loss = nn.MSELoss()
 
     # ALGO Logic: Storage setup
     obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape, dtype=torch.float).to(device)
@@ -357,9 +391,9 @@ if __name__ == "__main__":
                 history_input = torch.cat((history_input_obs, history_input_action), dim=-1)
 
                 history_input = history_input.reshape((history_input.shape[0], -1))
-                context = dm.get_context(history_input)
+                context = student.get_context(history_input)
                 contexts[step] = context
-                action, logprob, _, value = agent.get_action_and_value(context, next_obs)
+                action, logprob, _, value = student.get_action_and_value(history_input, next_obs)
                 #######
                 values[step] = value.flatten()
             actions[step] = action
@@ -386,10 +420,10 @@ if __name__ == "__main__":
         # bootstrap value if not done
         with torch.no_grad():
             #######
-            # next_value = agent.get_value(next_obs).reshape(1, -1)
+            # next_value = student.get_value(next_obs).reshape(1, -1)
             
             # cwkang: use contexts as additional input
-            next_value = agent.get_value(contexts[step], next_obs).reshape(1, -1)
+            next_value = student.get_value(history_input, next_obs).reshape(1, -1)
             #######
             advantages = torch.zeros_like(rewards).to(device)
             lastgaelam = 0
@@ -411,6 +445,10 @@ if __name__ == "__main__":
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)
+        b_history_obses = history_obses.reshape((-1, args.len_history) + envs.single_observation_space.shape)
+        b_history_actions = history_actions.reshape((-1, args.len_history) + envs.single_action_space.shape)
+        b_history_actions = torch.clamp(b_history_actions, -envs.clip_actions, envs.clip_actions)
+        b_history_dones = history_dones.reshape((-1, args.len_history))
         b_sys_param_weights = sys_param_weights.reshape((-1, NUM_SYS_PARAMS)) # cwkang: add system parameters
         b_contexts = contexts.reshape((-1, 10)) # cwkang: add contexts
 
@@ -423,10 +461,23 @@ if __name__ == "__main__":
                 mb_inds = b_inds[start:end]
 
                 #######
-                # _, newlogprob, entropy, newvalue = agent.get_action_and_value(b_obs[mb_inds], b_actions[mb_inds])
+                # _, newlogprob, entropy, newvalue = student.get_action_and_value(b_obs[mb_inds], b_actions[mb_inds])
                 
                 # cwkang: use contexts as additional input
-                _, newlogprob, entropy, newvalue = agent.get_action_and_value(b_contexts[mb_inds], b_obs[mb_inds], b_actions[mb_inds])
+                last_done_indices = (b_history_dones[mb_inds] == 1).cumsum(dim=1).max(dim=1).indices
+                timesteps = torch.arange(b_history_dones[mb_inds].size(1), device=device).expand_as(b_history_dones[mb_inds])
+                history_input_mask = timesteps >= last_done_indices.unsqueeze(-1)
+
+                history_input_obs = b_history_obses[mb_inds]*history_input_mask.unsqueeze(-1)
+                history_input_action = b_history_actions[mb_inds]*history_input_mask.unsqueeze(-1)
+                history_input = torch.cat((history_input_obs, history_input_action), dim=-1)
+
+                history_input = history_input.reshape((history_input.shape[0], -1))
+                student_action, newlogprob, entropy, newvalue = student.get_action_and_value(history_input, b_obs[mb_inds], b_actions[mb_inds])
+
+                teacher_action, _, _, _ = teacher.get_action_and_value(b_sys_param_weights[mb_inds], b_obs[mb_inds])
+                teacher_action = torch.clamp(teacher_action, -envs.clip_actions, envs.clip_actions)
+                bc_loss = torch.sqrt(mse_loss(student_action, teacher_action) + 1e-8)
                 #######
                 logratio = newlogprob - b_logprobs[mb_inds]
                 ratio = logratio.exp()
@@ -463,10 +514,11 @@ if __name__ == "__main__":
 
                 entropy_loss = entropy.mean()
                 loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
+                loss = loss + bc_loss
 
                 optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
+                nn.utils.clip_grad_norm_(student.parameters(), args.max_grad_norm)
                 optimizer.step()
 
             if args.target_kl is not None and approx_kl > args.target_kl:
@@ -476,6 +528,7 @@ if __name__ == "__main__":
         writer.add_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
         writer.add_scalar("losses/value_loss", v_loss.item(), global_step)
         writer.add_scalar("losses/policy_loss", pg_loss.item(), global_step)
+        writer.add_scalar("losses/bc_loss", bc_loss.item(), global_step)
         writer.add_scalar("losses/entropy", entropy_loss.item(), global_step)
         writer.add_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
         writer.add_scalar("losses/approx_kl", approx_kl.item(), global_step)
@@ -485,7 +538,7 @@ if __name__ == "__main__":
 
         # cwkang: save the model parameters
         if iteration % (args.num_iterations // args.num_checkpoints) == 0 or iteration == args.num_iterations:
-            torch.save(agent.state_dict(), f"runs/{run_name}/checkpoints/{global_step}_phase2.pth")
+            torch.save(student.state_dict(), f"runs/{run_name}/checkpoints/{global_step}.pth")
 
 
     # envs.close()
