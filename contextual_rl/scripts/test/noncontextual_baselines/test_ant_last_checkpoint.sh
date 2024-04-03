@@ -19,5 +19,17 @@ do
                 --device_id $device_id \
                 --seed $test_seed
         done
+
+        env_id=Ant
+        run_name=$train_env_id"_stacked"
+        run_dir="runs/training/seed_"$train_seed"/"$run_name
+
+        checkpoint_path=$run_dir"/checkpoints/99942400.pth"
+
+        python -m src.test_ppo_stacked \
+            --checkpoint_path $checkpoint_path \
+            --env_id $env_id \
+            --device_id $device_id \
+            --seed $test_seed
     done
 done
